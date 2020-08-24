@@ -1,5 +1,4 @@
-use futures_util::future::TryFutureExt;
-use futures_util::stream::{Stream, TryStreamExt};
+use futures_util::stream::{Stream, StreamExt, TryStreamExt};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use std::convert::Infallible;
@@ -42,18 +41,27 @@ async fn main() -> io::Result<()> {
 
     // Create a TCP listener via tokio.
     let mut tcp = TcpListener::bind(&addr).await?;
-    let tls_acceptor = TlsAcceptor::from(tls_cfg);
+    let tls_acceptor = &TlsAcceptor::from(tls_cfg);
     // Prepare a long-running future stream to accept and serve clients.
     let incoming_tls_stream = tcp
         .incoming()
         .map_err(|e| error(format!("Incoming failed: {:?}", e)))
-        .and_then(move |s| {
-            tls_acceptor.accept(s).map_err(|e| {
-                println!("[!] Voluntary server halt due to client-connection error...");
-                // Errors could be handled here, instead of server aborting.
-                // Ok(None)
-                error(format!("TLS Error: {:?}", e))
-            })
+        // (base: https://github.com/cloudflare/wrangler/pull/1485/files)
+        .filter_map(move |s| async move {
+            let client = match s {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("Failed to accept client: {}", e);
+                    return None;
+                }
+            };
+            match tls_acceptor.accept(client).await {
+                Ok(x) => Some(Ok(x)),
+                Err(e) => {
+                    eprintln!("Client connection error: {}", e);
+                    None
+                }
+            }
         });
 
     // A `Service` is needed for every connection, so this
