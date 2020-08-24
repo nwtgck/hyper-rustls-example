@@ -25,16 +25,16 @@ async fn main() -> io::Result<()> {
     // Build TLS configuration.
     let tls_cfg = {
         // Load public certificate.
-        let certs = load_certs("./ssl_certs/server.crt")?;
+        let mut cert_reader = io::BufReader::new(std::fs::File::open("./ssl_certs/server.crt")?);
+        let certs = rustls::internal::pemfile::certs(&mut cert_reader).unwrap();
         // Load private key.
-        let key = load_private_key("./ssl_certs/server.key")?;
+        let mut key_reader = io::BufReader::new(std::fs::File::open("./ssl_certs/server.key")?);
+        // Load and return a single private key.
+        let mut keys = rustls::internal::pemfile::rsa_private_keys(&mut key_reader).unwrap();
         // Do not use client certificate authentication.
         let mut cfg = rustls::ServerConfig::new(rustls::NoClientAuth::new());
         // Select a certificate to use.
-        cfg.set_single_cert(certs, key).map_err(|e| {
-            println!("{}", e);
-            error(format!("{}", e))
-        })?;
+        cfg.set_single_cert(certs, keys.remove(0)).unwrap();
         // Configure ALPN to accept HTTP/2, HTTP/1.1 in that order.
         cfg.set_protocols(&[b"h2".to_vec(), b"http/1.1".to_vec()]);
         std::sync::Arc::new(cfg)
@@ -43,7 +43,7 @@ async fn main() -> io::Result<()> {
     // Create a TCP listener via tokio.
     let mut tcp = TcpListener::bind(&addr).await?;
     let tls_acceptor = TlsAcceptor::from(tls_cfg);
-    // Prepare a long-running future stream to accept and serve cients.
+    // Prepare a long-running future stream to accept and serve clients.
     let incoming_tls_stream = tcp
         .incoming()
         .map_err(|e| error(format!("Incoming failed: {:?}", e)))
@@ -92,32 +92,4 @@ where
     ) -> core::task::Poll<Option<Result<Self::Conn, Self::Error>>> {
         self.acceptor.as_mut().poll_next(cx)
     }
-}
-
-// Load public certificate from file.
-fn load_certs(filename: &str) -> io::Result<Vec<rustls::Certificate>> {
-    // Open certificate file.
-    let certfile = std::fs::File::open(filename)
-        .map_err(|e| error(format!("failed to open {}: {}", filename, e)))?;
-    let mut reader = io::BufReader::new(certfile);
-
-    // Load and return certificate.
-    rustls::internal::pemfile::certs(&mut reader)
-        .map_err(|_| error("failed to load certificate".into()))
-}
-
-// Load private key from file.
-fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
-    // Open keyfile.
-    let keyfile = std::fs::File::open(filename)
-        .map_err(|e| error(format!("failed to open {}: {}", filename, e)))?;
-    let mut reader = io::BufReader::new(keyfile);
-
-    // Load and return a single private key.
-    let keys = rustls::internal::pemfile::rsa_private_keys(&mut reader)
-        .map_err(|_| error("failed to load private key".into()))?;
-    if keys.len() != 1 {
-        return Err(error("expected a single private key".into()));
-    }
-    Ok(keys[0].clone())
 }
