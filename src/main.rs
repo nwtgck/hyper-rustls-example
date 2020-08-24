@@ -1,10 +1,7 @@
-use futures_util::{
-    future::TryFutureExt,
-    stream::{Stream, TryStreamExt},
-};
+use futures_util::future::TryFutureExt;
+use futures_util::stream::{Stream, TryStreamExt};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
-use rustls::internal::pemfile;
 use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
@@ -34,11 +31,10 @@ async fn main() -> io::Result<()> {
         // Do not use client certificate authentication.
         let mut cfg = rustls::ServerConfig::new(rustls::NoClientAuth::new());
         // Select a certificate to use.
-        cfg.set_single_cert(certs, key)
-            .map_err(|e| {
-                println!("{}", e);
-                error(format!("{}", e))
-            })?;
+        cfg.set_single_cert(certs, key).map_err(|e| {
+            println!("{}", e);
+            error(format!("{}", e))
+        })?;
         // Configure ALPN to accept HTTP/2, HTTP/1.1 in that order.
         cfg.set_protocols(&[b"h2".to_vec(), b"http/1.1".to_vec()]);
         std::sync::Arc::new(cfg)
@@ -83,7 +79,10 @@ struct HyperAcceptor<S> {
     acceptor: core::pin::Pin<Box<S>>,
 }
 
-impl<S> hyper::server::accept::Accept for HyperAcceptor<S> where S: Stream<Item = Result<TlsStream<TcpStream>, io::Error>>{
+impl<S> hyper::server::accept::Accept for HyperAcceptor<S>
+where
+    S: Stream<Item = Result<TlsStream<TcpStream>, io::Error>>,
+{
     type Conn = TlsStream<TcpStream>;
     type Error = io::Error;
 
@@ -103,7 +102,8 @@ fn load_certs(filename: &str) -> io::Result<Vec<rustls::Certificate>> {
     let mut reader = io::BufReader::new(certfile);
 
     // Load and return certificate.
-    pemfile::certs(&mut reader).map_err(|_| error("failed to load certificate".into()))
+    rustls::internal::pemfile::certs(&mut reader)
+        .map_err(|_| error("failed to load certificate".into()))
 }
 
 // Load private key from file.
@@ -114,7 +114,7 @@ fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
     let mut reader = io::BufReader::new(keyfile);
 
     // Load and return a single private key.
-    let keys = pemfile::rsa_private_keys(&mut reader)
+    let keys = rustls::internal::pemfile::rsa_private_keys(&mut reader)
         .map_err(|_| error("failed to load private key".into()))?;
     if keys.len() != 1 {
         return Err(error("expected a single private key".into()));
