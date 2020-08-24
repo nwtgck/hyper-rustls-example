@@ -1,6 +1,6 @@
 use futures_util::{
     future::TryFutureExt,
-    stream::{Stream, StreamExt, TryStreamExt},
+    stream::{Stream, TryStreamExt},
 };
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
@@ -58,8 +58,7 @@ async fn main() -> io::Result<()> {
                 // Ok(None)
                 error(format!("TLS Error: {:?}", e))
             })
-        })
-        .boxed();
+        });
 
     // A `Service` is needed for every connection, so this
     // creates one from our `hello_world` function.
@@ -68,9 +67,8 @@ async fn main() -> io::Result<()> {
         Ok::<_, Infallible>(service_fn(hello_world))
     });
 
-    // let server = Server::bind(&addr).serve(make_svc);
     let server = Server::builder(HyperAcceptor {
-        acceptor: incoming_tls_stream,
+        acceptor: Box::pin(incoming_tls_stream),
     })
     .serve(make_svc);
 
@@ -81,11 +79,11 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-struct HyperAcceptor<'a> {
-    acceptor: core::pin::Pin<Box<dyn Stream<Item = Result<TlsStream<TcpStream>, io::Error>> + 'a>>,
+struct HyperAcceptor<S> {
+    acceptor: core::pin::Pin<Box<S>>,
 }
 
-impl hyper::server::accept::Accept for HyperAcceptor<'_> {
+impl<S> hyper::server::accept::Accept for HyperAcceptor<S> where S: Stream<Item = Result<TlsStream<TcpStream>, io::Error>>{
     type Conn = TlsStream<TcpStream>;
     type Error = io::Error;
 
@@ -93,7 +91,7 @@ impl hyper::server::accept::Accept for HyperAcceptor<'_> {
         mut self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context,
     ) -> core::task::Poll<Option<Result<Self::Conn, Self::Error>>> {
-        core::pin::Pin::new(&mut self.acceptor).poll_next(cx)
+        self.acceptor.as_mut().poll_next(cx)
     }
 }
 
