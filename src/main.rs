@@ -47,7 +47,7 @@ async fn main() -> io::Result<()> {
         .incoming()
         .map_err(|e| error(format!("Incoming failed: {:?}", e)))
         // (base: https://github.com/cloudflare/wrangler/pull/1485/files)
-        .filter_map(move |s| async move {
+        .filter_map(|s| async {
             let client = match s {
                 Ok(x) => x,
                 Err(e) => {
