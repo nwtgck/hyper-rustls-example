@@ -30,7 +30,7 @@ async fn main() -> io::Result<()> {
         // Load private key.
         let mut key_reader = io::BufReader::new(std::fs::File::open("./ssl_certs/server.key")?);
         // Load and return a single private key.
-        let mut keys = rustls::internal::pemfile::rsa_private_keys(&mut key_reader).unwrap();
+        let mut keys = rustls::internal::pemfile::pkcs8_private_keys(&mut key_reader).unwrap();
         // Do not use client certificate authentication.
         let mut cfg = rustls::ServerConfig::new(rustls::NoClientAuth::new());
         // Select a certificate to use.
